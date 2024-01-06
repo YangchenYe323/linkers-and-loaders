@@ -98,8 +98,7 @@ pub struct Symbol {
   pub value: u64,
   /// Segment where symbol is defined
   pub seg: u64,
-  /// U - undefined, D - defined
-  pub type_: String,
+  pub defined: bool,
 }
 
 impl Symbol {
@@ -112,13 +111,46 @@ impl Symbol {
     let seg = split
       .next()
       .and_then(|seg| u64::from_str_radix(seg, 16).ok())?;
-    let type_ = split.next()?.to_string();
+    let defined = split.next()? == "D";
     Some(Self {
       name,
       value,
       seg,
-      type_,
+      defined,
     })
+  }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum SegmentType {
+  /// Read and Present
+  RP,
+  /// Read, Write and Present
+  RWP,
+  /// Read and Write
+  RW,
+}
+
+impl TryFrom<&'_ str> for SegmentType {
+  type Error = String;
+
+  fn try_from(value: &'_ str) -> Result<Self, Self::Error> {
+    match value {
+      "RP" => Ok(Self::RP),
+      "RWP" => Ok(Self::RWP),
+      "RW" => Ok(Self::RW),
+      s => Err(s.to_string()),
+    }
+  }
+}
+
+impl SegmentType {
+  pub fn to_str(self) -> &'static str {
+    match self {
+      Self::RP => "RP",
+      Self::RWP => "RWP",
+      Self::RW => "RW",
+    }
   }
 }
 
@@ -130,17 +162,22 @@ pub struct Segment {
   pub logical_start: u64,
   /// Segment length in byte
   pub length: u64,
-  /// Segment readable
-  pub read: bool,
-  /// Segment writable
-  pub write: bool,
-  /// Segment present in file
-  pub present: bool,
+  pub type_: SegmentType,
   /// Segment text data
   pub data: Vec<u8>,
 }
 
 impl Segment {
+  pub fn new_empty(name: String, type_: SegmentType) -> Self {
+    Self {
+      name,
+      logical_start: 0,
+      length: 0,
+      type_,
+      data: vec![],
+    }
+  }
+
   pub fn parse_definition(s: &str) -> Option<Self> {
     let mut split = s.split(" ");
     let name = split.next()?.to_string();
@@ -150,17 +187,12 @@ impl Segment {
     let length = split
       .next()
       .and_then(|length| u64::from_str_radix(length, 16).ok())?;
-    let properties = split.next()?;
-    let read = properties.contains('R');
-    let write = properties.contains('W');
-    let present = properties.contains('P');
+    let type_ = split.next()?.try_into().ok()?;
     Some(Segment {
       name,
       logical_start: start_addr,
       length,
-      read,
-      write,
-      present,
+      type_,
       data: Vec::new(),
     })
   }
@@ -246,7 +278,7 @@ impl Obj {
 
     // read segment data
     for i in 0..nseg {
-      let buffer = lines.next()?.ok()?;
+      let buffer = lines.next().map(|r| r.unwrap()).unwrap_or_default();
       let data = Segment::parse_data(&buffer)?;
       segments[i as usize].set_data(data);
     }
@@ -270,20 +302,13 @@ impl Obj {
     )?;
     // write segments
     for seg in &self.segments {
-      let mut property = String::new();
-      if seg.read {
-        property.push('R');
-      }
-      if seg.write {
-        property.push('W');
-      }
-      if seg.present {
-        property.push('P');
-      }
       writeln!(
         w,
         "{} {:x} {:x} {}",
-        &seg.name, seg.logical_start, seg.length, property
+        &seg.name,
+        seg.logical_start,
+        seg.length,
+        seg.type_.to_str()
       )?;
     }
     // write symbols
@@ -291,7 +316,10 @@ impl Obj {
       writeln!(
         w,
         "{} {:x} {:x} {}",
-        &sym.name, sym.value, sym.seg, &sym.type_
+        &sym.name,
+        sym.value,
+        sym.seg,
+        if sym.defined { "D" } else { "U" }
       )?;
     }
     // write rels
