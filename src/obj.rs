@@ -56,9 +56,13 @@ impl RelEntryType {
 
 #[derive(Debug)]
 pub struct RelEntry {
+  /// Address of the entry
   pub loc: u64,
+  /// Segment where the entry is defined
   pub seg: u64,
+  /// Symbol number of this entry
   pub ref_: u64,
+  /// Entry type
   pub type_: RelEntryType,
 }
 
@@ -88,9 +92,13 @@ impl RelEntry {
 
 #[derive(Debug)]
 pub struct Symbol {
+  /// Symbol name
   pub name: String,
+  /// Hex value of symbol
   pub value: u64,
+  /// Segment where symbol is defined
   pub seg: u64,
+  /// U - undefined, D - defined
   pub type_: String,
 }
 
@@ -116,12 +124,19 @@ impl Symbol {
 
 #[derive(Debug)]
 pub struct Segment {
+  /// Segment name
   pub name: String,
+  /// Start address
   pub logical_start: u64,
+  /// Segment length in byte
   pub length: u64,
+  /// Segment readable
   pub read: bool,
+  /// Segment writable
   pub write: bool,
+  /// Segment present in file
   pub present: bool,
+  /// Segment text data
   pub data: Vec<u8>,
 }
 
