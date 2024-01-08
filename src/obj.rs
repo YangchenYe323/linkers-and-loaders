@@ -94,10 +94,12 @@ impl RelEntry {
 pub struct Symbol {
   /// Symbol name
   pub name: String,
-  /// Hex value of symbol
+  /// Hex value of symbol, which is the address of the 
+  /// source code symbol relative to segment start address
   pub value: u64,
-  /// Segment where symbol is defined
+  /// Segment number where symbol is defined
   pub seg: u64,
+  /// If the symbol is defined in current module (object file)
   pub defined: bool,
 }
 
@@ -165,6 +167,9 @@ pub struct Segment {
   pub type_: SegmentType,
   /// Segment text data
   pub data: Vec<u8>,
+  /// The corresponding output segment number, only used when
+  /// linking
+  pub output: u64,
 }
 
 impl Segment {
@@ -175,6 +180,7 @@ impl Segment {
       length: 0,
       type_,
       data: vec![],
+      output: u64::MAX,
     }
   }
 
@@ -194,6 +200,7 @@ impl Segment {
       length,
       type_,
       data: Vec::new(),
+      output: u64::MAX,
     })
   }
 
