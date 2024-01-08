@@ -2,6 +2,8 @@ use std::collections::{BTreeMap, HashMap};
 
 use crate::obj::{Obj, Segment, SegmentType, Symbol};
 
+use self::relocation::execute_rel_entry;
+
 const GLOBAL_START: u64 = 0x1000;
 
 /// The module table serves as the single database of the input object information
@@ -187,7 +189,7 @@ impl Linker {
     }
 
     // all_segments is the canonical list of all the output segments
-    let all_segments: Vec<_> = rp_segments
+    let mut all_segments: Vec<_> = rp_segments
       .into_values()
       .chain(rwp_segments.into_values())
       .chain(rw_segments.into_values())
@@ -224,7 +226,24 @@ impl Linker {
       }
     }
 
-    // TODO: relocation entries
+    // Step 4: By this point every input segment and symbol has a final address assignment, and we could start
+    // executing relocation entries.
+    for iobj in 0..self.module_table.0.len() {
+      for entry in self.module_table.0[iobj].rels.clone() {
+        execute_rel_entry(&mut self.module_table, iobj as u64, entry);
+      }
+    }
+
+    // Step 5: Now relocation entries have been applied and we could add up final segment data
+    for segment in &mut all_segments {
+      for input_id in &segment.inputs {
+        segment
+          .seg
+          .data
+          .append(&mut self.module_table[*input_id].data);
+      }
+    }
+
     let segments = all_segments.into_iter().map(|out| out.seg).collect();
     let symbols = global_symbol_table
       .into_iter()
@@ -240,6 +259,75 @@ impl Linker {
       segments,
       symbols,
       rels: vec![],
+    }
+  }
+}
+
+mod relocation {
+  use std::io::Cursor;
+
+  use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+
+  use crate::obj::{RelEntry, RelEntryType};
+
+  use super::{ModuleTable, SegmentId, SymbolId};
+
+  pub fn execute_rel_entry(module_table: &mut ModuleTable, obj: u64, entry: RelEntry) {
+    let origin_seg = SegmentId(obj as usize, entry.seg as usize);
+    // final_addr = target_addr - relational_addr + offset
+    let target_addr = find_target_address(entry.type_, entry.ref_, obj, module_table);
+    let offset = match entry.type_ {
+      RelEntryType::A4 | RelEntryType::R4 => {
+        let seg = &mut module_table[origin_seg];
+        let data = &seg.data;
+        let mut cursor = Cursor::new(&data[entry.loc as usize..(entry.loc + 4) as usize]);
+        cursor.read_u32::<BigEndian>().unwrap()
+      }
+      _ => 0,
+    };
+    let relational_addr = match entry.type_ {
+      RelEntryType::R4 => module_table[origin_seg].logical_start,
+      RelEntryType::RS4 => module_table[origin_seg].logical_start + entry.loc,
+      _ => 0,
+    };
+    let value = target_addr + offset as u64 - relational_addr;
+    let value = value as u32;
+    match entry.type_ {
+      RelEntryType::A4 | RelEntryType::AS4 | RelEntryType::R4 | RelEntryType::RS4 => {
+        let seg = &mut module_table[origin_seg];
+        let mut cursor = Cursor::new(&mut seg.data[entry.loc as usize..(entry.loc + 4) as usize]);
+        cursor.write_u32::<BigEndian>(value).unwrap()
+      }
+      RelEntryType::U2 => {
+        let upper = (value >> 16) as u16;
+        let seg = &mut module_table[origin_seg];
+        let mut cursor = Cursor::new(&mut seg.data[entry.loc as usize..(entry.loc + 2) as usize]);
+        cursor.write_u16::<BigEndian>(upper).unwrap()
+      }
+      RelEntryType::L2 => {
+        let lower = (value & 0xffff) as u16;
+        let seg = &mut module_table[origin_seg];
+        let mut cursor = Cursor::new(&mut seg.data[entry.loc as usize..(entry.loc + 2) as usize]);
+        cursor.write_u16::<BigEndian>(lower).unwrap()
+      }
+    }
+  }
+
+  fn find_target_address(
+    type_: RelEntryType,
+    ref_: u64,
+    obj: u64,
+    module_table: &ModuleTable,
+  ) -> u64 {
+    match type_ {
+      RelEntryType::R4 | RelEntryType::A4 => {
+        let segment_id = SegmentId(obj as usize, ref_ as usize);
+        module_table[segment_id].logical_start
+      }
+      _ => {
+        let symbol_id = SymbolId(obj as usize, ref_ as usize);
+        module_table[symbol_id].value
+      }
     }
   }
 }

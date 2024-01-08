@@ -27,10 +27,34 @@ pub const MAGIC_NUMBER: &str = "LINK";
 
 #[derive(Debug, Clone, Copy)]
 pub enum RelEntryType {
-  /// 4-byte absolute address
+  /// 4-byte absolute address:
+  /// The four bytes at loc are an absolute reference to segment ref.
+  /// Operation: Add the relocated address of the corresponding segment to the original
+  /// value in the 4-byte location.
   A4,
-  /// 4-byte relative address
+  /// 4-byte relative address:
+  /// The four bytes at loc are a relative reference to segment ref.
+  /// Operation: Add the (relocated address of the ref_ segment - relocated address of the seg segment) to the original
+  /// value in the 4-byte location.
   R4,
+  /// Absolute symbol reference.
+  /// The four bytes at loc are an abso- lute reference to symbol ref,
+  /// with the addend being the value al- ready stored at loc.
+  /// Operation: Add the relocated address of the corresponding symbol to the original
+  /// value in the 4-byte location.
+  AS4,
+  /// Relative symbol reference.
+  /// The four bytes at loc are a relative reference to symbol ref,
+  /// with the addend being the value already stored at loc. (The addend is usually zero.)
+  /// Operation: Add the (relocated address of the ref_ symbol - relocated address of the seg segment - loc) to the original
+  /// value in the 4-byte location.
+  RS4,
+  /// Upper half reference. The two bytes at loc are the most significant two bytes of a reference to symbol ref.
+  /// Put the upper two bits of the relocated address of the symbol to the 2-bytes starting at loc
+  U2,
+  /// Lower half reference. The two bytes at loc are the least significant two bytes of a reference to symbol ref.
+  /// Put the lower two bits of the relocated address of the symbol to the 2-bytes starting at loc
+  L2,
 }
 
 impl TryFrom<&'_ str> for RelEntryType {
@@ -40,6 +64,10 @@ impl TryFrom<&'_ str> for RelEntryType {
     match value {
       "A4" => Ok(Self::A4),
       "R4" => Ok(Self::R4),
+      "AS4" => Ok(Self::AS4),
+      "RS4" => Ok(Self::RS4),
+      "U2" => Ok(Self::U2),
+      "L2" => Ok(Self::L2),
       s => Err(s.to_string()),
     }
   }
@@ -50,17 +78,23 @@ impl RelEntryType {
     match self {
       Self::A4 => "A4",
       Self::R4 => "R4",
+      Self::AS4 => "AS4",
+      Self::RS4 => "RS4",
+      Self::U2 => "U2",
+      Self::L2 => "L2",
     }
   }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct RelEntry {
-  /// Address of the entry
+  /// loc is an offset into the segment data, where the 4/2 bytes starting from that offset
+  /// contains an address that needs to be relocated based on type
   pub loc: u64,
-  /// Segment where the entry is defined
+  /// The ordinal number of the segment in which the entry is defined
   pub seg: u64,
-  /// Symbol number of this entry
+  /// The reference the entry is making to, it could be a segment number or a symbol number
+  /// defined within the object file.
   pub ref_: u64,
   /// Entry type
   pub type_: RelEntryType,
