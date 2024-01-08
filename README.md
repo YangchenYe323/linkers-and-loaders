@@ -1,0 +1,1 @@
+My (untested, poorly documented) experiment with projects from [linkers and loaders](https://www.wh0rd.org/books/linkers-and-loaders/linkers_and_loaders.pdf), mostly intended for trying out ideas and concept
